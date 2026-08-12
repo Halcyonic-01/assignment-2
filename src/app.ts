@@ -68,5 +68,8 @@ export function buildApp() {
   // Health check
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
+  // Favicon handler for browser tabs
+  app.get('/favicon.ico', async (_req, reply) => reply.status(204).send());
+
   return app;
 }
