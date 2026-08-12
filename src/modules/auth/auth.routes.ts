@@ -19,10 +19,10 @@ export async function authRoutes(fastify: FastifyInstance) {
         type: 'object',
         required: ['email', 'role', 'full_name'],
         properties: {
-          email: { type: 'string', format: 'email', example: 'sellerA@reneo.com' },
-          role: { type: 'string', enum: ['SELLER', 'CUSTOMER'], example: 'SELLER' },
-          full_name: { type: 'string', example: 'Seller Alpha' },
-          store_name: { type: 'string', example: 'Alpha Electronics' },
+          email: { type: 'string', format: 'email' },
+          role: { type: 'string', enum: ['SELLER', 'CUSTOMER'] },
+          full_name: { type: 'string' },
+          store_name: { type: 'string' },
         },
       },
       response: {

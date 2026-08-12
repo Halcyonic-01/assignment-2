@@ -29,7 +29,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
               required: ['product_id', 'quantity'],
               properties: {
                 product_id: { type: 'string', format: 'uuid' },
-                quantity: { type: 'integer', minimum: 1, example: 2 },
+                quantity: { type: 'integer', minimum: 1 },
               },
             },
           },
