@@ -5,6 +5,7 @@ import sql from './index.js';
 async function migrate() {
   console.log('🚀 Running database migrations...');
   try {
+    // CommonJS-compatible __dirname — works with tsx and tsc CommonJS output
     const migrationsDir = path.join(__dirname, 'migrations');
     const files = fs.readdirSync(migrationsDir).sort();
 

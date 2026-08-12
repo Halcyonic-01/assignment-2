@@ -1,21 +1,21 @@
 import { FastifyInstance } from 'fastify';
-import { requireRole } from '../../middleware/auth.js';
+import { authenticateUser, requireRole } from '../../middleware/auth.js';
 import { BadRequestError } from '../../lib/errors.js';
 import { CreateOrderSchema } from './order.schema.js';
 import { OrderService } from './order.service.js';
 
 export async function orderRoutes(fastify: FastifyInstance) {
-  // POST /orders
+  // POST /orders (Customer places order)
   fastify.post('/orders', {
     preHandler: [requireRole('CUSTOMER')],
     schema: {
-      description: 'Place a new order (Customer only, supports Idempotency-Key header)',
+      description: 'Place a new order (Customer only). Supports Idempotency-Key header to prevent duplicates.',
       tags: ['Orders'],
       security: [{ bearerAuth: [] }],
       headers: {
         type: 'object',
         properties: {
-          'idempotency-key': { type: 'string', description: 'Optional unique UUID key to prevent duplicate orders' },
+          'idempotency-key': { type: 'string', description: 'Optional UUID key to prevent duplicate orders on retry' },
         },
       },
       body: {
@@ -50,7 +50,7 @@ export async function orderRoutes(fastify: FastifyInstance) {
     const parseResult = CreateOrderSchema.safeParse(request.body);
     if (!parseResult.success) {
       return reply.status(400).send({
-        error: { code: 'BAD_REQUEST', message: 'Invalid order request payload', details: parseResult.error.format() },
+        error: { code: 'BAD_REQUEST', message: 'Invalid order payload', details: parseResult.error.format() },
       });
     }
 
@@ -61,35 +61,31 @@ export async function orderRoutes(fastify: FastifyInstance) {
     return reply.status(cached ? 200 : 201).send(order);
   });
 
-  // GET /orders
+  // Fix 6: GET /orders — add authenticateUser preHandler (was always returning 401 before)
   fastify.get('/orders', {
+    preHandler: [authenticateUser],
     schema: {
-      description: 'Get orders for authenticated customer or seller',
+      description: 'List orders for authenticated customer (their orders) or seller (orders with their products)',
       tags: ['Orders'],
       security: [{ bearerAuth: [] }],
     },
   }, async (request, reply) => {
-    if (!request.user) {
-      return reply.status(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required' } });
-    }
-    const user = request.user;
+    const user = request.user!;
     const orders = await OrderService.getOrders(user.id, user.role);
     return reply.status(200).send(orders);
   });
 
-  // GET /orders/:id
+  // Fix 6: GET /orders/:id — add authenticateUser preHandler + IDOR protection
   fastify.get('/orders/:id', {
+    preHandler: [authenticateUser],
     schema: {
-      description: 'Get order details by order ID',
+      description: 'Get order details by ID (must be owner or seller of ordered items)',
       tags: ['Orders'],
       security: [{ bearerAuth: [] }],
     },
   }, async (request, reply) => {
-    if (!request.user) {
-      return reply.status(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required' } });
-    }
     const { id } = request.params as { id: string };
-    const order = await OrderService.getOrderById(request.user.id, id);
+    const order = await OrderService.getOrderById(request.user!.id, id);
     return reply.status(200).send(order);
   });
 }

@@ -1,6 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import sql from '../../db/index.js';
-import { BadRequestError } from '../../lib/errors.js';
 import { z } from 'zod';
 
 const SignupSchema = z.object({
@@ -13,7 +12,7 @@ const SignupSchema = z.object({
 export async function authRoutes(fastify: FastifyInstance) {
   const signupSwaggerSchema = {
     schema: {
-      description: 'Signup or authenticate user and return JWT bearer token',
+      description: 'Register a new user and return JWT bearer token. Each email can only have one account.',
       tags: ['Authentication'],
       body: {
         type: 'object',
@@ -52,7 +51,7 @@ export async function authRoutes(fastify: FastifyInstance) {
       return reply.status(400).send({
         error: {
           code: 'BAD_REQUEST',
-          message: 'Invalid signup body. Required fields: email, role ("SELLER" or "CUSTOMER"), full_name',
+          message: 'Invalid signup body. Required: email, role ("SELLER" or "CUSTOMER"), full_name',
           details: parseResult.error.format(),
         },
       });
@@ -60,11 +59,21 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     const { email, role, full_name, store_name } = parseResult.data;
 
+    // Fix 3: Prevent account takeover — check if email already exists before inserting
+    const [existing] = await sql`SELECT id, role FROM profiles WHERE email = ${email}`;
+    if (existing) {
+      return reply.status(409).send({
+        error: {
+          code: 'CONFLICT',
+          message: 'An account with this email already exists. Please use a different email.',
+        },
+      });
+    }
+
     return await sql.begin(async (tx) => {
       const [profile] = await tx`
         INSERT INTO profiles (email, role, full_name)
         VALUES (${email}, ${role}, ${full_name})
-        ON CONFLICT (email) DO UPDATE SET full_name = EXCLUDED.full_name
         RETURNING id, email, role, full_name;
       `;
 
@@ -73,7 +82,6 @@ export async function authRoutes(fastify: FastifyInstance) {
         const [store] = await tx`
           INSERT INTO stores (seller_id, name)
           VALUES (${profile.id}, ${store_name || `${full_name}'s Store`})
-          ON CONFLICT (seller_id) DO UPDATE SET name = EXCLUDED.name
           RETURNING id;
         `;
         storeId = store.id;
@@ -96,7 +104,7 @@ export async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/auth/signup', signupSwaggerSchema, handleSignup);
   fastify.post('/signup', signupSwaggerSchema, handleSignup);
 
-  fastify.get('/signup', async (request, reply) => {
+  fastify.get('/signup', async (_request, reply) => {
     return reply.status(400).send({
       message: 'Signup requires an HTTP POST request with a JSON body',
       examplePayload: {

@@ -1,11 +1,12 @@
 import sql from '../../db/index.js';
-import { ConflictError, NotFoundError } from '../../lib/errors.js';
+import { ConflictError, ForbiddenError, NotFoundError } from '../../lib/errors.js';
 import { CreateOrderInput } from './order.schema.js';
 
 export class OrderService {
   /**
    * Create order with explicit ROW-LEVEL LOCKING (SELECT FOR UPDATE)
    * Prevents race conditions and overselling under heavy concurrency (B1)
+   * Product IDs are sorted before locking to prevent deadlocks
    */
   static async createOrder(customerId: string, input: CreateOrderInput, idempotencyKey?: string) {
     // Check Idempotency Key first if present (B2)
@@ -24,14 +25,16 @@ export class OrderService {
       }
     }
 
-    const productIds = input.items.map(item => item.product_id);
+    // Fix 4: Deduplicate and sort productIds to prevent deadlocks when acquiring row locks
+    const productIds = [...new Set(input.items.map(item => item.product_id))].sort();
 
     return await sql.begin(async (tx) => {
-      // 1. Lock inventory rows using FOR UPDATE to serialize concurrent requests for the same product
+      // 1. Lock inventory rows in deterministic sort order to prevent deadlocks
       const lockedInventories = await tx`
         SELECT product_id, stock
         FROM inventory
         WHERE product_id = ANY(${productIds})
+        ORDER BY product_id ASC
         FOR UPDATE;
       `;
 
@@ -65,7 +68,7 @@ export class OrderService {
         subtotal: number;
       }[] = [];
 
-      // 3. Validate availability & calculate total
+      // 3. Validate each item and calculate totals
       for (const item of input.items) {
         const product = productMap.get(item.product_id);
         if (!product || product.is_archived) {
@@ -77,7 +80,10 @@ export class OrderService {
           throw new ConflictError(`Out of stock: Product '${product.name}' only has ${currentStock} item(s) remaining`);
         }
 
-        const unitPrice = product.price; // SERVER-SIDE TRUTH PRICE
+        // Update inventoryMap in place to handle duplicate product_ids correctly
+        inventoryMap.set(item.product_id, currentStock - item.quantity);
+
+        const unitPrice = product.price; // SERVER-SIDE TRUTH PRICE — never from client
         const subtotal = unitPrice * item.quantity;
         orderTotal += subtotal;
 
@@ -89,7 +95,7 @@ export class OrderService {
         });
       }
 
-      // 4. Deduct inventory stock
+      // 4. Deduct inventory stock atomically
       for (const item of input.items) {
         await tx`
           UPDATE inventory
@@ -130,7 +136,7 @@ export class OrderService {
         `;
       }
 
-      // 7. Emit ORDER_CREATED Event to Outbox Table (B3: Transactional Outbox pattern)
+      // 7. Emit ORDER_CREATED Event to Outbox Table (B3: Transactional Outbox)
       await tx`
         INSERT INTO outbox (event_type, payload)
         VALUES ('ORDER_CREATED', ${tx.json({
@@ -151,7 +157,7 @@ export class OrderService {
    */
   static async getOrders(userId: string, role: 'CUSTOMER' | 'SELLER') {
     if (role === 'CUSTOMER') {
-      const orders = await sql`
+      return await sql`
         SELECT o.id, o.status, o.total_amount, o.created_at,
                json_agg(json_build_object(
                  'id', oi.id,
@@ -168,10 +174,8 @@ export class OrderService {
         GROUP BY o.id
         ORDER BY o.created_at DESC;
       `;
-      return orders;
     } else {
-      // Seller sees orders containing products from their store
-      const orders = await sql`
+      return await sql`
         SELECT o.id, o.customer_id, o.status, o.created_at,
                json_agg(json_build_object(
                  'id', oi.id,
@@ -189,22 +193,31 @@ export class OrderService {
         GROUP BY o.id
         ORDER BY o.created_at DESC;
       `;
-      return orders;
     }
   }
 
   /**
-   * Get single order by ID
+   * Get single order by ID — Fix 5: enforce ownership check to prevent IDOR
    */
   static async getOrderById(userId: string, orderId: string) {
+    // Must be the customer who placed it OR a seller whose products appear in the order
     const [order] = await sql`
       SELECT o.id, o.customer_id, o.status, o.total_amount, o.created_at
       FROM orders o
-      WHERE o.id = ${orderId};
+      WHERE o.id = ${orderId}
+        AND (
+          o.customer_id = ${userId}
+          OR EXISTS (
+            SELECT 1 FROM order_items oi
+            JOIN products p ON p.id = oi.product_id
+            JOIN stores s ON s.id = p.store_id
+            WHERE oi.order_id = o.id AND s.seller_id = ${userId}
+          )
+        );
     `;
 
     if (!order) {
-      throw new NotFoundError('Order not found');
+      throw new NotFoundError('Order not found or access denied');
     }
 
     const items = await sql`
@@ -214,9 +227,6 @@ export class OrderService {
       WHERE oi.order_id = ${orderId};
     `;
 
-    return {
-      ...order,
-      items,
-    };
+    return { ...order, items };
   }
 }

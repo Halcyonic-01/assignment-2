@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import supertest from 'supertest';
-import { createTestEnvironment } from './helpers/testApp.js';
+import { createTestEnvironment, TestSeeds } from './helpers/testApp.js';
 import sql from '../src/db/index.js';
 
 describe('Part A & B: Core API & Access Control Tests', () => {
   let app: any;
-  let seedData: any;
+  let seedData: TestSeeds;
   let request: any;
 
   beforeAll(async () => {
@@ -13,7 +13,7 @@ describe('Part A & B: Core API & Access Control Tests', () => {
     app = env.app;
     seedData = env.seedData;
     request = supertest(app.server);
-  }, 30000);
+  }, 60000);
 
   afterAll(async () => {
     await app.close();
@@ -21,10 +21,10 @@ describe('Part A & B: Core API & Access Control Tests', () => {
   });
 
   // Scenario 1: Seller A creates a product
-  it('Scenario 1: Seller A creates a product (Expected: Success)', async () => {
+  it('Scenario 1: Seller A creates a product (Expected: Success 201)', async () => {
     const res = await request
       .post('/products')
-      .set('Authorization', `Bearer ${seedData.sellerA}`)
+      .set('Authorization', `Bearer ${seedData.sellerAToken}`)
       .send({
         name: 'Wireless Ergonomic Keyboard',
         description: 'Mechanical feel solar keyboard',
@@ -43,10 +43,8 @@ describe('Part A & B: Core API & Access Control Tests', () => {
   it('Scenario 2: Seller B attempts to modify Seller A product (Expected: Denied 403 or 404)', async () => {
     const res = await request
       .patch(`/products/${seedData.product1}`)
-      .set('Authorization', `Bearer ${seedData.sellerB}`)
-      .send({
-        price: 10, // Tampering attempt
-      });
+      .set('Authorization', `Bearer ${seedData.sellerBToken}`)
+      .send({ price: 10 });
 
     expect([403, 404]).toContain(res.status);
   }, 15000);
@@ -55,14 +53,9 @@ describe('Part A & B: Core API & Access Control Tests', () => {
   it('Scenario 3: Customer orders an available product (Expected: Success 201)', async () => {
     const res = await request
       .post('/orders')
-      .set('Authorization', `Bearer ${seedData.customer1}`)
+      .set('Authorization', `Bearer ${seedData.customer1Token}`)
       .send({
-        items: [
-          {
-            product_id: seedData.product1,
-            quantity: 2,
-          },
-        ],
+        items: [{ product_id: seedData.product1, quantity: 2 }],
       });
 
     expect(res.status).toBe(201);
@@ -74,14 +67,9 @@ describe('Part A & B: Core API & Access Control Tests', () => {
   it('Scenario 4: Customer orders more than available stock (Expected: Denied 409 Conflict)', async () => {
     const res = await request
       .post('/orders')
-      .set('Authorization', `Bearer ${seedData.customer2}`)
+      .set('Authorization', `Bearer ${seedData.customer2Token}`)
       .send({
-        items: [
-          {
-            product_id: seedData.product1,
-            quantity: 9999, // Exceeds available stock
-          },
-        ],
+        items: [{ product_id: seedData.product1, quantity: 9999 }],
       });
 
     expect(res.status).toBe(409);
@@ -90,25 +78,21 @@ describe('Part A & B: Core API & Access Control Tests', () => {
 
   // Idempotency Test (B2)
   it('B2 Challenge: Duplicate order with same Idempotency-Key returns cached response', async () => {
-    const idempotencyKey = 'test-idempotency-key-12345';
+    const idempotencyKey = 'test-idempotency-key-abc123';
 
     const firstReq = await request
       .post('/orders')
-      .set('Authorization', `Bearer ${seedData.customer1}`)
+      .set('Authorization', `Bearer ${seedData.customer1Token}`)
       .set('Idempotency-Key', idempotencyKey)
-      .send({
-        items: [{ product_id: seedData.product1, quantity: 1 }],
-      });
+      .send({ items: [{ product_id: seedData.product1, quantity: 1 }] });
 
     expect(firstReq.status).toBe(201);
 
     const secondReq = await request
       .post('/orders')
-      .set('Authorization', `Bearer ${seedData.customer1}`)
+      .set('Authorization', `Bearer ${seedData.customer1Token}`)
       .set('Idempotency-Key', idempotencyKey)
-      .send({
-        items: [{ product_id: seedData.product1, quantity: 1 }],
-      });
+      .send({ items: [{ product_id: seedData.product1, quantity: 1 }] });
 
     expect(secondReq.status).toBe(200);
     expect(secondReq.body.id).toBe(firstReq.body.id);

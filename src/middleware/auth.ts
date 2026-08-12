@@ -22,21 +22,16 @@ export async function authenticateUser(request: FastifyRequest, reply: FastifyRe
     throw new UnauthorizedError('Missing or malformed Authorization header');
   }
 
-  const token = authHeader.substring(7);
-
   try {
-    let userId = token;
-
-    if (token.includes('.')) {
-      const decoded = await request.jwtVerify<{ sub: string; email?: string }>();
-      userId = decoded.sub;
-    }
+    // Always verify JWT — never accept raw UUIDs or emails as tokens
+    const decoded = await request.jwtVerify<{ sub: string; email?: string; role?: string; store_id?: string }>();
+    const userId = decoded.sub;
 
     const [profile] = await sql`
       SELECT p.id, p.email, p.role, s.id as store_id
       FROM profiles p
       LEFT JOIN stores s ON s.seller_id = p.id
-      WHERE p.id = ${userId} OR p.email = ${userId}
+      WHERE p.id = ${userId}
     `;
 
     if (!profile) {
@@ -52,7 +47,9 @@ export async function authenticateUser(request: FastifyRequest, reply: FastifyRe
 
     request.user = authUser;
 
+    // Set Postgres session variable for RLS enforcement
     await sql`SELECT set_config('app.current_user_id', ${profile.id}, true)`;
+
   } catch (err) {
     if (err instanceof UnauthorizedError) throw err;
     throw new UnauthorizedError('Invalid or expired authentication token');
