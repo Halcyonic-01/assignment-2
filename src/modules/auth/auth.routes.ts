@@ -11,6 +11,41 @@ const SignupSchema = z.object({
 });
 
 export async function authRoutes(fastify: FastifyInstance) {
+  const signupSwaggerSchema = {
+    schema: {
+      description: 'Signup or authenticate user and return JWT bearer token',
+      tags: ['Authentication'],
+      body: {
+        type: 'object',
+        required: ['email', 'role', 'full_name'],
+        properties: {
+          email: { type: 'string', format: 'email', example: 'sellerA@reneo.com' },
+          role: { type: 'string', enum: ['SELLER', 'CUSTOMER'], example: 'SELLER' },
+          full_name: { type: 'string', example: 'Seller Alpha' },
+          store_name: { type: 'string', example: 'Alpha Electronics' },
+        },
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                email: { type: 'string' },
+                role: { type: 'string' },
+                full_name: { type: 'string' },
+                store_id: { type: 'string' },
+              },
+            },
+            token: { type: 'string' },
+          },
+        },
+      },
+    },
+  };
+
   const handleSignup = async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = SignupSchema.safeParse(request.body);
     if (!parseResult.success) {
@@ -58,11 +93,9 @@ export async function authRoutes(fastify: FastifyInstance) {
     });
   };
 
-  // POST /auth/signup and POST /signup aliases
-  fastify.post('/auth/signup', handleSignup);
-  fastify.post('/signup', handleSignup);
+  fastify.post('/auth/signup', signupSwaggerSchema, handleSignup);
+  fastify.post('/signup', signupSwaggerSchema, handleSignup);
 
-  // Friendly GET handler for browser testing
   fastify.get('/signup', async (request, reply) => {
     return reply.status(400).send({
       message: 'Signup requires an HTTP POST request with a JSON body',

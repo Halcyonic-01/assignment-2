@@ -5,9 +5,38 @@ import { CreateOrderSchema } from './order.schema.js';
 import { OrderService } from './order.service.js';
 
 export async function orderRoutes(fastify: FastifyInstance) {
-  // POST /orders (Customer places order)
-  fastify.post('/orders', { preHandler: [requireRole('CUSTOMER')] }, async (request, reply) => {
-    // Explicit anti-tampering check: reject if client attempts to pass price/total in request body
+  // POST /orders
+  fastify.post('/orders', {
+    preHandler: [requireRole('CUSTOMER')],
+    schema: {
+      description: 'Place a new order (Customer only, supports Idempotency-Key header)',
+      tags: ['Orders'],
+      security: [{ bearerAuth: [] }],
+      headers: {
+        type: 'object',
+        properties: {
+          'idempotency-key': { type: 'string', description: 'Optional unique UUID key to prevent duplicate orders' },
+        },
+      },
+      body: {
+        type: 'object',
+        required: ['items'],
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              required: ['product_id', 'quantity'],
+              properties: {
+                product_id: { type: 'string', format: 'uuid' },
+                quantity: { type: 'integer', minimum: 1, example: 2 },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     const bodyObj = request.body as Record<string, unknown>;
     if (bodyObj && ('price' in bodyObj || 'total_amount' in bodyObj || 'total' in bodyObj)) {
       return reply.status(400).send({
@@ -32,8 +61,14 @@ export async function orderRoutes(fastify: FastifyInstance) {
     return reply.status(cached ? 200 : 201).send(order);
   });
 
-  // GET /orders (List orders for authenticated customer or seller)
-  fastify.get('/orders', async (request, reply) => {
+  // GET /orders
+  fastify.get('/orders', {
+    schema: {
+      description: 'Get orders for authenticated customer or seller',
+      tags: ['Orders'],
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
     if (!request.user) {
       return reply.status(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required' } });
     }
@@ -42,8 +77,14 @@ export async function orderRoutes(fastify: FastifyInstance) {
     return reply.status(200).send(orders);
   });
 
-  // GET /orders/:id (Get order by ID)
-  fastify.get('/orders/:id', async (request, reply) => {
+  // GET /orders/:id
+  fastify.get('/orders/:id', {
+    schema: {
+      description: 'Get order details by order ID',
+      tags: ['Orders'],
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
     if (!request.user) {
       return reply.status(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required' } });
     }
