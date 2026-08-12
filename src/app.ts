@@ -56,6 +56,15 @@ export function buildApp() {
   app.register(productRoutes);
   app.register(orderRoutes);
 
+  // Root endpoint
+  app.get('/', async () => ({
+    name: 'Reneo Commerce Platform API',
+    version: '1.0.0',
+    status: 'online',
+    documentation: '/docs',
+    healthCheck: '/health',
+  }));
+
   // Health check
   app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
 
