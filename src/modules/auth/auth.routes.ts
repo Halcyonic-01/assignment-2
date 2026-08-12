@@ -1,4 +1,4 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import sql from '../../db/index.js';
 import { BadRequestError } from '../../lib/errors.js';
 import { z } from 'zod';
@@ -11,11 +11,16 @@ const SignupSchema = z.object({
 });
 
 export async function authRoutes(fastify: FastifyInstance) {
-  // POST /auth/signup (Development / Test authentication helper)
-  fastify.post('/auth/signup', async (request, reply) => {
+  const handleSignup = async (request: FastifyRequest, reply: FastifyReply) => {
     const parseResult = SignupSchema.safeParse(request.body);
     if (!parseResult.success) {
-      throw new BadRequestError('Invalid signup parameters');
+      return reply.status(400).send({
+        error: {
+          code: 'BAD_REQUEST',
+          message: 'Invalid signup body. Required fields: email, role ("SELLER" or "CUSTOMER"), full_name',
+          details: parseResult.error.format(),
+        },
+      });
     }
 
     const { email, role, full_name, store_name } = parseResult.data;
@@ -50,6 +55,23 @@ export async function authRoutes(fastify: FastifyInstance) {
         user: { ...profile, store_id: storeId },
         token,
       });
+    });
+  };
+
+  // POST /auth/signup and POST /signup aliases
+  fastify.post('/auth/signup', handleSignup);
+  fastify.post('/signup', handleSignup);
+
+  // Friendly GET handler for browser testing
+  fastify.get('/signup', async (request, reply) => {
+    return reply.status(400).send({
+      message: 'Signup requires an HTTP POST request with a JSON body',
+      examplePayload: {
+        email: 'seller@reneo.com',
+        role: 'SELLER',
+        full_name: 'Kushagra Singh',
+        store_name: 'Kushagra Electronics',
+      },
     });
   });
 }
