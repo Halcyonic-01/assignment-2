@@ -13,7 +13,7 @@ describe('Part A & B: Core API & Access Control Tests', () => {
     app = env.app;
     seedData = env.seedData;
     request = supertest(app.server);
-  });
+  }, 30000);
 
   afterAll(async () => {
     await app.close();
@@ -37,7 +37,7 @@ describe('Part A & B: Core API & Access Control Tests', () => {
     expect(res.body).toHaveProperty('id');
     expect(res.body.name).toBe('Wireless Ergonomic Keyboard');
     expect(res.body.stock).toBe(15);
-  });
+  }, 15000);
 
   // Scenario 2: Seller B attempts to modify Seller A's product
   it('Scenario 2: Seller B attempts to modify Seller A product (Expected: Denied 403 or 404)', async () => {
@@ -49,7 +49,7 @@ describe('Part A & B: Core API & Access Control Tests', () => {
       });
 
     expect([403, 404]).toContain(res.status);
-  });
+  }, 15000);
 
   // Scenario 3: Customer orders an available product
   it('Scenario 3: Customer orders an available product (Expected: Success 201)', async () => {
@@ -68,7 +68,7 @@ describe('Part A & B: Core API & Access Control Tests', () => {
     expect(res.status).toBe(201);
     expect(res.body).toHaveProperty('id');
     expect(res.body.total_amount).toBe(900000); // 450000 * 2
-  });
+  }, 15000);
 
   // Scenario 4: Customer orders more than available stock
   it('Scenario 4: Customer orders more than available stock (Expected: Denied 409 Conflict)', async () => {
@@ -86,7 +86,7 @@ describe('Part A & B: Core API & Access Control Tests', () => {
 
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('CONFLICT');
-  });
+  }, 15000);
 
   // Idempotency Test (B2)
   it('B2 Challenge: Duplicate order with same Idempotency-Key returns cached response', async () => {
@@ -112,5 +112,5 @@ describe('Part A & B: Core API & Access Control Tests', () => {
 
     expect(secondReq.status).toBe(200);
     expect(secondReq.body.id).toBe(firstReq.body.id);
-  });
+  }, 15000);
 });

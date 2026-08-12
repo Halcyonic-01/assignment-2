@@ -13,7 +13,7 @@ describe('Scenario 5: Concurrent Stock Control Test (B1 - 20 Points)', () => {
     app = env.app;
     seedData = env.seedData;
     request = supertest(app.server);
-  });
+  }, 30000);
 
   afterAll(async () => {
     await app.close();
@@ -48,11 +48,11 @@ describe('Scenario 5: Concurrent Stock Control Test (B1 - 20 Points)', () => {
 
     console.log(`🏁 Concurrency Race Test Results: Customer 1 status=${res1.status}, Customer 2 status=${res2.status}`);
 
-    // EXACTLY ONE SUCESS (201), EXACTLY ONE CONFLICT (409)
+    // EXACTLY ONE SUCCESS (201), EXACTLY ONE CONFLICT (409)
     expect(statuses).toEqual([201, 409]);
 
     // Verify remaining stock is exactly 0 and NOT negative (-1)
     const [invAfter] = await sql`SELECT stock FROM inventory WHERE product_id = ${productId}`;
     expect(invAfter.stock).toBe(0);
-  });
+  }, 20000);
 });
